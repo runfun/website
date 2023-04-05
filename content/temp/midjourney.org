@@ -1,0 +1,92 @@
+#+TITLE: Midjourney
+#+AUTHOR: Runfun
+#+Date: <2023-03-25 Sat>
+
+Midjourney
+Parameter List
+
+Parameters are options added to a prompt that change how an image generates. Parameters can change an image's Aspect Ratios, switch between Midjourney Model Versions, change which Upscaler is used, and lots more.
+
+* Basic Parameters
+
+** Aspect Ratios
+=--aspect=, or =--ar= Change the aspect ratio of a generation.
+
+The =--aspect= or =--ar= parameter changes the aspect ratio of the generated image. An aspect ratio is the width-to-height ratio of an image. It is typically expressed as two numbers separated by a colon, such as 7:4 or 4:3.
+
+A square image has equal width and height, described as a 1:1 aspect ratio. The image could be 1000px × 1000px, or 1500px × 1500px, and the aspect ratio would still be 1:1. A computer screen might have a ratio of 16:10. The width is 1.6 times longer than the height. So the image could be 1600px × 1000px, 4000px × 2000px, 320px x 200px, etc.
+
+** Chaos
+=--chaos <number 0-100>= Change how avried the results will be. Higher values produce more unusual and unexpected generations.
+
+
+
+** No
+=--no= Negative prompting, =--no plants= would try to remove plants from the image.
+
+** Quality
+=--quality <.25, .5, 1, or 2>=, or =--1 <.25, .5, 1, or 2>= How much rendering quality time you want to spend. The default value is 1. Higher values cost more and lower values cost less.
+
+** Seed
+=--seed <integer between 0-4294967295>= The Midjourney bot uses a seed number to create a field of visual noise, like television static, as a starting point to generate the initial image grids. Seed numbers are generated randomly for each image but can be specified with the --seed or --sameseed parameter. Using the same seed number and prompt will produce similar ending images.
+
+** Stop
+=--stop <integer between 10-100> Use the =--stop= parameter to finish a Job partway through the process. Stopping a Job at an earlier percentage can create blurrier, less detailed results.
+
+** Style
+=--style <4a, 4b or 4c>= Switch between versions of the Midjourney Model Version 4
+
+** Stylize
+=--stylize <number>=, or =--s <number>= parameter influences how strongly Midjourney's default aesthetic style is applied to Jobs.
+
+** Uplight
+=-uplight= Use an alternative "light" upscaler when selecting the U buttons. The results are closer to original grid image. The upscaled image is less detailed and smoother.
+
+** Upbeta
+=--upbeta= Use an alternative beta upscler when selecting the U buttons. The results are closer to the original grid image. The upscaled image has significantly fewer added details.
+
+* Default Values (Model Version 4)
+| \             | Aspect Ratio | Chaos | Quality     | Seed                       | Stop   | Style         | Stylize |
+|               |              |       |             |                            |        |               |         |
+| Default Value | 1:1          | 0     | 1           | Random                     | 100    | 4c            | 100     |
+| Range         | 1:2–2:1      | 0–100 | .25 .5 or 1 | whole numbers 0–4294967295 | 10–100 | 4a, 4b, or 4c | 0–1000  |
+
+
+| \             | Aspect Ratio | Chaos | Quality     | Seed                       | Stop   | Stylize |
+|               |              |       |             |                            |        |         |
+| Default Value | 1:1          | 0     | 1           | Random                     | 100    | 100     |
+| Range         | any          | 0–100 | .25 .5 or 1 | whole numbers 0–4294967295 | 10–100 | 0–1000  |
+
+- Aspect ratio greater then 2:1 are experimental and may produce unpredicatble results.
+
+* Model Version Parameters
+Midjourney routinely releases new model versions to improve efficiency, coherency, and quality. Different models excel at different types of images.
+
+** Niji
+=--niji= An alternative model focused on anime style images.
+
+** High Definition
+=--hd= Use an early alternative Model that produces larger, less consistent images. This algorithm may be suitable for abstract and landscape images.
+
+** Test
+=--test= Use the Midjourney special test model.
+
+** Testp
+=--Testp= Use the Midjourney special photography-focused test model.
+
+** Version
+=--version <1, 2, 3, 4, or 5>= or =--v <1, 2, 3, 4, or 5>= Use a different version of the Midjourney algorithm. The current algorithm(V4) is the default setting.
+
+* Upscaler Parameters
+Midjourney starts by generating a grid of low-resolution image options for each Job. you can use a Midjourney upscaler on any grid image to increase the size and add additional details. There are multiple upscale models available for upscaling an image.
+
+** Uplight
+=--uplight= Use an alternative "light" upscaler when selecting the U buttons. The results are closer to the original grid image. The upscaled image is less detailed and smoother.
+
+** Upbeta
+=--upbeta= Use an alternative beta upscaler when selecting the U buttons. The results are closer to the original grid image. The upscaled image has significantly fewer added details.
+
+** Upanime
+Use an alternative upscaler trained to work with the when selecting the U buttons. This upscaler was specifically created to work with the --niji Midjourney Model.
+
+* Other Parameters

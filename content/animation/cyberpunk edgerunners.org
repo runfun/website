@@ -1,0 +1,10 @@
+:PROPERTIES:
+:ID:       4c0c581b-3435-4aa2-8bde-a001f8cc4e60
+:END:
+#+TITLE: Cyberpunk: Edgerunners
+#+AUTHOR: Runfun
+#+DATE: <2023-03-17 Fri>
+#+DESCRIPTION: Cyberpunk: Edgerunners，中文译名为「赛博朋克：边缘行者」，为游戏「Cyberpunk：2077」的衍生动画
+
+
+[[file:../../image/Cyberpunk-Edgerunners-S1-Poster-Lucy-en.jpg]]

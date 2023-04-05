@@ -1,0 +1,11 @@
+:PROPERTIES:
+:ID:       81cd3653-ff74-4d14-b85a-469786a6677a
+:END:
+
+#+TITLE: Home
+#+AUTHOR: Runfun
+#+DATE: <2023-03-18 Sat>
+
+Welcome
+
+[[file:animation/cyberpunk edgerunners.org]]

@@ -1,0 +1,4 @@
+#+TITLE: Roam notes
+
+- [[file:example.org][Example]]
+- [[file:index.org][Home]]

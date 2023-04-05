@@ -1,0 +1,284 @@
+:PROPERTIES:
+:ID:       69314a50-664f-45c6-8f15-85cca5784fa8
+:END:
+#+TITLE: Atomics
+#+AUTHOR: Runfun
+#+DATE: <2023-03-23 Thu>
+
+
+The word /atomic/ comes from the Greek word ἄτομος, meaning /indivisible/, something that cannot be cut into smaller pieces. In computer science, it is used to describe an operation that is indivisible: it is either fully completed, or it didn't happen yet.
+
+As mentioned in [[file:01 basic of rust concurrency.org::*Borrowing and Data Races][Borrowing and Data Races in Chapter 1]], multiple threads concurrently reading and modifying the same variable normally results in undefined behavior. However, atomic operations do allow for different threads to safely readd and modify the same variable. Since such an operation is indivisible, it either happens completely before or completely after another operation, avoiding undefined behavior. Later, in [[file:07 understanding the processor.org][Chapter 7]], we'll see how this works at the hardware level.
+
+Atomic operations are the main building block for anything involving multiple threads. All the other concurrency primitives, such as mutexes and condition variables, are implemented using atomic operations.
+
+In Rust, atomic operations are available as methods on the standard atomic types that live in ~std::sync::atomic~. They all have names starting with =Atomic=, such as ~AtomicI32~ or ~AtomicUsize~. Which one are available depends on the hardware architecture and sometimes operating system, but almost all platforms provide at least all atomic types up to the size of a pointer.
+
+Unlike most types, they allow modification through a shared reference (e.g., ~&AtomicU8~). This is possible thanks to interior mutability, as discussed in [[file:01 basic of rust concurrency.org::*Interior Mutability][Interiro Mutability in Chapter 1]].
+
+Each of the available atomic types has the same interface with methods for storing and loading, methods for atomic "fetch-and-modify" operations, and some more advanced "compare-and-exchange" methods. We'll discuss them in detail in the rest of this chapter.
+
+But, before we can dive into the different atomic operations, we briefly need to touch upon a concept called /memory ordering/:
+
+Every atomic operation takes an argument of type ~std::sync::atomic::Ordering~, which determines what guarantess we get about the relative ordering of operations. The simplest variant with the fewest guarantess is ~Relaxed~. ~Relaxed~ still guarantees consistency on a single atomic variable, but does not promise anything about the relative order of operations between different variables.
+
+What this means is that two threads might see operations on different variables happen in a different order. For example, if one thread writes to one variable first and then to a second variable very quickly afterwards, another thread might see that happen in the opposite order.
+
+In this chapter we'll only look at use cases where this is not a problem and simply use =Relaxed= everywhere without going more into detail. We'll discuss all the details of memory ordering and the other available memory ordering in[[file:03 memory ordering.org][ Chatper 3]].
+
+* Atomic Load and Store Operations
+
+The first two atomic operations we'll look at are the most basic ones: =load= and =store=. Their function signatures are as follows, using =AtomicI32= as an example:
+
+#+BEGIN_SRC rust
+impl AtomicI32 {
+    pub fn load(&self, ordering: Ordering) -> i32;
+    pub fn store(&self, value: i32, ordering: Ordering);
+}
+#+END_SRC
+
+The ~load~ method atomically loads the value stored in the atomic variable, and the ~store~ method atomically stores a new value in it. Note how the ~store~ method takes a shared reference(~&T~) rather than an exclusive reference(~&mut T~), even though it modifies the value.
+
+Let's take a look at some realistic use cases for these two methods.
+
+** Example: Stop Flag
+
+The first example use an =AtomicBool= for a /stop flag/. Such a flag is used to inform other threads to stop running.
+
+#+BEGIN_SRC rust
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering::Relaxed;
+
+fn main() {
+    static STOP: AtomicBool = AtomicBool::new(false);
+
+    // Spawn a thread to do the work.
+    let background_thread = thread::spawn(|| {
+        while !STOP.load(Relaxed) {
+            some_work();
+        }
+    });
+
+    // Use the main thread to listen for user input.
+    for line in std::io::stdin().lines() {
+        match line.unwrap().as_str()  {
+            "help" => println!("commands: help, stop"),
+            "stop" => break,
+            cmd => println!("unknown command: {cmd:?}"),
+        }
+    }
+
+    // Inform the background thread it needs to stop.
+    STOP.store(true, Relaxed);
+
+    // Wait until the background thread finishes.
+    background_thread.join().unwrap();
+}
+#+END_SRC
+
+In this example, the background thread is repeatedly running ~some_work()~, while the main thread allows the user to enter some commands to interact with the program. In this simple example, the only useful command is ~stop~ to make the program stop.
+
+To make the background thread stop, tha atom ~STOP~ boolean is used to communicate this condition to the background thread. When the foreground thread reads the ~stop~ command, it sets the flag to true, which is checked by the background thread before each new iteration. The main thread waits until the background thread is finished wiht its current iteration using the ~join~ method.
+
+This simple solution works great as long as the flag is regularly checked by the background thread. If it gets stuck in ~some_work()~ for a long time, that can result in an unacceptable delay between the stop command and the program quitting.
+
+** Example: Progress Reporting
+
+In our next example, we process 100 items one by one on a background thread, while the main thread gives the user regular updates on the progress:
+
+#+BEGIN_SRC rust
+use std::sync::atomic::AtomicUsize;
+
+fn main() {
+    let num_done = AtomicUsize::new(0);
+
+    thread::scope(|s| {
+        // A background thread to process all 100 items.
+        s.spawn(|| {
+            for i in 0..100 {
+                process_item(i);
+                num_done.store(i+1, Relaxed);
+            }
+        });
+
+        // The main thread shows status updates, every second.
+        loop {
+            let n = num_done.load(Relaxed);
+            if n== 100 {break;}
+            println!("Working... {n}/100 done");
+            thread::sleep(Duration::from_secs(1));
+        }
+    });
+
+    println!("Done!");
+}
+#+END_SRC
+
+This time, we use a scoped thread ([[file:01 basic of rust concurrency.org::*Scoped Threads]["Scoped Threads" in Chapter 1]]), which will automatically handle the joining of the thread for us, and also allow us to borrow local variables.
+
+Every time the background thread finishes processing an item, it stores the number of processed item in an =AtomicUsize=. Meanwhile, the main thread shows that number to the user to inform them of the progress, about once per second. Once the main thread sees that all 100 items have been processed, it exits the scope, which implicitly joins the background thread, and informs the user that everything iss done.
+
+*** Synchronization
+
+Once the last item is processed, it might take up to one whole second for the main thread to know, introducing an unnecessary delay at the end. To solve this, we can use thread parking ([[file:01 basic of rust concurrency.org::*Thread Parking]["Thread Parking" in Chapter 1]]) to wake the main thread from its sleep whenever this is new information it might be interested in.
+
+Here's the same example, but now using ~thread::park_timeout~ rather than ~thread::sleep~:
+
+#+BEGIN_SRC rust
+fn main() {
+    let num_done = AtomicUsize::new(0);
+
+    let main_thread = thread::current();
+
+    thread::scope(|s| {
+        // A background thread to process all 100 items.
+        s.spawn(|| {
+            for i in 0..100 {
+                process_item(i); // Assuming this takes some time.
+                num_done.store(i + 1, Relaxed);
+                main_thread.unpark(); // Wake up the main thread.
+            }
+        });
+
+        // The main thread shows status updates.
+        loop {
+            let n = num_done.load(Relaxed);
+            if n == 100 { break; }
+            println!("Working.. {n}/100 done");
+            thread::park_timeout(Duration::from_secs(1));
+        }
+    });
+
+    println!("Done!");
+}
+#+END_SRC
+
+Not much has exchanged. We've obtained a handle to the main thread through ~thread::current()~, which is now used by the background thread to unpark the main thread after every status update. The main thread now uses ~park_timeout~ rather than ~sleep~, such that it can be interrupted.
+
+Now, any status updates are immediately reported to the user, while stil repeating the last update every second to show that the program is still running.
+
+** Example: Lazy Initialization
+The last example before we move on to more advanced atomic operations is about /lazy initialization/.
+
+Imagine there is a value ~x~, which we are reading from a file, obtaining from the operating system, or calculating in some other way, that we expect to be constant during a run of the program. Maybe x is the version of the operating system, or the total amount of memory, or the 400th digit of tau. It doesn’t really matter for this example.
+
+Since we don't expect it to change, we can request or calculate it only the first time we need it, and remember the result. The first thread that needs it will have to calculate the value, but it can store it in an atomic =static= to make it available for all threads, including itself if it needs it again later.
+
+Let's take a look at an example of this. To keep things simple, we'll assume ~x~ is never zero, so that we can use zero as a placeholder before it has been calculated.
+
+#+BEGIN_SRC rust
+use std::sync::atomic::AtomicU64;
+
+fn get_x() -> u64 {
+    static X: AtomicU64 = AtomicU64::new(0);
+    let mut x = X.load(Relaxed);
+    if x == 0 {
+        x = calculate_x();
+        X.store(x, Relaxed);
+    }
+    x
+}
+#+END_SRC
+
+The first thread to call ~get_x()~ will check the static ~X~ and see it is still zero, calculate its value, and store the result back in the static to make it available for future use. Later, any call to ~get_x()~ will see that the value in the static is nonzero, and return it immediately without calculating it again.
+
+However, if a second thread calls ~get_x()~ while the first one is still calculating ~x~, the second thread will also see a zero and also calculate ~x~ in parallel. One of the threads will end up overwriting the result of the other, depending on which one finished first. This is called a /race/. Not a /data race/, which is undefined behavior and impossible in =Rust= without using =unsafe=, but still a race with an unpredictable winner.
+
+Since we expect x to be constant, it doesn’t matter who wins the race, as the result will be the same regardless. Depending on how much time we expect calculate_x() to take, this might be a very good or very bad strategy.
+
+If ~calculate_x()~ is expected to take a long time, it's better if threads wait while the first thread is still initialization ~X~, to avoid unnecessary wasting processor time. You could implement this using a condition variable or thread parking ([[file:01 basic of rust concurrency.org::*Waiting: Parking and Condition Variables][Waiting: Parking and Condition Variables]]), but that quickly gets too complicated for a small example. The Rust standard library provides exactly this functionality through ~std::sync::Once~ and ~std::sync::OnceLock~, so there's ususlly no need to implement these yourself.
+
+* Fetch-and-Modify Operations
+
+Now that we've seen a few use cases for the basic =load= and =store= operations, let's move on to more interesting operations: the /fetch-and-modify/ operations. These operatioons modify the atomic variable, but also load (fetch) the original value, as a single atomic operation.
+
+The most commonly used ones are ~fetch_and~ and ~fetch_sub~, which perform addition and subtraction, respectively. Some of the other available operations are ~fetch_or~ and ~fetch_and~ for bitwise operations, and ~fetch_max~ and ~fetch_min~ which can be used to keep a running maximum or minimum.
+
+Their function signatures are as follows, using =AtomicI32= as an example:
+
+#+BEGIN_SRC rust
+impl AtomicI32 {
+    pub fn fetch_add(&self, v: i32, ordering: Ordering) -> i32;
+    pub fn fetch_sub(&self, v: i32, ordering: Ordering) -> i32;
+    pub fn fetch_or(&self, v: i32, ordering: Ordering) -> i32;
+    pub fn fetch_and(&self, v: i32, ordering: Ordering) -> i32;
+    pub fn fetch_nand(&self, v: i32, ordering: Ordering) -> i32;
+    pub fn fetch_xor(&self, v: i32, ordering: Ordering) -> i32;
+    pub fn fetch_max(&self, v: i32, ordering: Ordering) -> i32;
+    pub fn fetch_min(&self, v: i32, ordering: Ordering) -> i32;
+    pub fn swap(&self, v: i32, ordering: Ordering) -> i32; // "fetch_store"
+}
+#+END_SRC
+
+The one outlier is the operation that simply stores a new value, regardless of the old value. Instead of fetch_store, it has been called swap.
+
+Here’s a quick demonstration showing how fetch_add returns the value before the operation:
+
+#+BEGIN_SRC rust
+use std::sync::atomic::AtomicI32;
+
+let a = AtomicI32::new(100);
+let b = a.fetch_add(23, Relaxed);
+let c = a.load(Relaxed);
+
+assert_eq!(b, 100);
+assert_eq!(c, 123);
+#+END_SRC
+
+The ~fetch_add~ operation incremented a from 100 to 123, but returned to us the old value of 100. Any next operation will see the value of 123.
+
+The return value from these operations is not always relevant. If you only need the operation to be applied to the atomic value, but are not interested in the value itself, it’s perfectly fine to simply ignore the return value.
+
+An important thing to keep in mind is that ~fetch_add~ and ~fetch_sub~ implement /wrapping/ behavior for overflows. Incrementing a value past the maximum representable value will wrap around and result in the minimum representable value. This is different than the behavior of the plus and minus operators on regular integers, which will panic in debug mode on overflow.
+
+In "[[*Compare-and-Exchange Operations][Conpare-and-Exchange Operations]]", we'll see how to do atomic addition with overflow checking.
+
+But first, let's see some real-world use cases of these methods.
+
+** Example: Progress Reporting from Multiple Threads
+
+In [[*Example: Progress Reporting]["Example: Progress Reporting"]], we used an AtomicUsize to report the progress of a background thread. If we had split the work over, for example, four threads with each processing 25 items, we’d need to know the progress from all four threads.
+
+To make that work, we can no longer use the ~store~ method, as that would overwrite the progress from other threads. Instead, we can use an atomic add operation to increment the counter after every processed item.
+
+Let’s update the example from "Example: Progress Reporting" to split the work over four threads:
+
+#+BEGIN_SRC rust
+fn main() {
+    let num_done = &AtomicUsize::new(0);
+
+    thread::scope(|s| {
+        // Four background threads to process all 100 items, 25 each.
+        for t in 0..4 {
+            s.spawn(move || {
+                for i in 0..25 {
+                    process_item(t * 25 + i); // Assuming this takes some time.
+                    num_done.fetch_add(1, Relaxed);
+                }
+            });
+        }
+
+        // The main thread shows status updates, every second.
+        loop {
+            let n = num_done.load(Relaxed);
+            if n == 100 { break; }
+            println!("Working.. {n}/100 done");
+            thread::sleep(Duration::from_secs(1));
+        }
+    });
+
+    println!("Done!");
+}
+#+END_SRC
+
+A few things have changed. Most importantly, we now spawn four background threads rather than one, and use ~fetch_add~ instead of ~store~ to modify the num_done atomic variable.
+
+More subtly, we now use a =move= closure for the background threads, and num_done is now a reference. This is not related to our use of fetch_add, but rather to how we spawn four threads in a loop. This closure captures t to know which of the four threads it is, and thus whether to start at item 0, 25, 50, or 75. Without the move keyword, the closure would try to capture ~t~ by reference. That isn’t allowed, as it only exists briefly during the loop.
+
+As a =move= closure, it moves (or copies) its captures rather than borrowing them, giving it a copy of ~t~. Because it also captures ~num_done~, we’ve changed that variable to be a reference, since we still want to borrow that same =AtomicUsize=. Note that the atomic types do not implement the =Copy= trait, so we’d have gotten an error if we had tried to move one into more than one thread.
+
+Closure capture subtleties aside, the change to use ~fetch_add~ here is very simple. We don’t know in which order the threads will increment ~num_done~, but as the addition is atomic, we don’t have to worry about anything and can be sure it will be exactly 100 when all threads are done.
+
+** Example: Statistics
+
+* Compare-and-Exchange Operations
